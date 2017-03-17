@@ -3,7 +3,7 @@ import base64
 from datetime import datetime
 import os
 import shutil
-
+import cv2
 import numpy as np
 import socketio
 import eventlet
@@ -16,11 +16,21 @@ from keras.models import load_model
 import h5py
 from keras import __version__ as keras_version
 
+
 sio = socketio.Server()
 app = Flask(__name__)
 model = None
 prev_image_array = None
 
+
+def preprocess(image):
+    # get shape and chop off 1/3 from the top
+    shape = image.shape
+    # note: numpy arrays are (row, col)!
+    image = image[shape[0]/4:shape[0]-25, 0:shape[1]]
+    #image = cv2.resize(image, (200,66), interpolation=cv2.INTER_AREA)
+    image = cv2.resize(image, (64,64), interpolation=cv2.INTER_AREA)
+    return image
 
 class SimplePIController:
     def __init__(self, Kp, Ki):
@@ -60,11 +70,17 @@ def telemetry(sid, data):
         # The current image from the center camera of the car
         imgString = data["image"]
         image = Image.open(BytesIO(base64.b64decode(imgString)))
-        image_array = np.asarray(image)
-        steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
+        image_pre = np.asarray(image)
+        image_array = preprocess(image_pre)
+        transformed_image_array = image_array[None, :, :, :]
 
-        throttle = controller.update(float(speed))
+        steering_angle = float(model.predict(transformed_image_array, batch_size=1))
 
+        #throttle = controller.update(float(speed)) 
+        if( 0.0 <= steering_angle <= 0.10):
+            throttle = 0.30
+        else:
+            throttle = controller.update(float(speed))
         print(steering_angle, throttle)
         send_control(steering_angle, throttle)
 
